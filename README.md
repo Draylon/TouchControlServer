@@ -1,4 +1,4 @@
-TouchControlServer
+#TouchControlServer
 
 ##Command
 This application requires adb installed, and to run this command;

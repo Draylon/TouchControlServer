@@ -8,7 +8,7 @@ Download the latest release [here](https://github.com/Draylon/TouchControlServer
 
 ## Usage
 
-° This requires Java installed;
+° This requires Java installed (tested on 1.8);
 
 ° This requires ADB installed.
 

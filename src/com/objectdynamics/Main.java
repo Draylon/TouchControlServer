@@ -284,7 +284,7 @@ public class Main {
                 bOsg=new ByteArrayOutputStream();
                 while (client.isConnected()){
                     ImageIO.write(windowsDrawingFrame.getBufferedImage(),"jpg",encscrDOS);
-                    System.out.println("fetching uncompressed "+encscrDOS.size());
+                    //System.out.println("fetching uncompressed "+encscrDOS.size());
                     //complen = sourceLen - ((sourceLen + 7) >> 3) - ((sourceLen + 63) >> 6) + 5;
                     //int notation = (encscrDOS.size() - ((encscrDOS.size() + 7) >> 3) - ((encscrDOS.size() + 63) >> 6) + 5);
                     //System.out.println("compression result: "+notation);
@@ -296,11 +296,11 @@ public class Main {
                         int count = compressor.deflate(buf);
                         bOsg.write(buf, 0, count);
                     }
-                    System.out.println("sending compressed: "+bOsg.size());
+                    //System.out.println("sending compressed: "+bOsg.size());
                     dOs.writeInt(bOsg.size());
                     dOs.write(bOsg.toByteArray());
                     dOs.flush();
-                    System.out.println("Sent");
+                    //System.out.println("Sent");
                     encscrDOS.flush();
                     bOsg.flush();
                     bOsg.reset();

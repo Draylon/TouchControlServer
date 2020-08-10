@@ -1,6 +1,4 @@
 package com.objectdynamics;
-
-import com.sun.media.sound.RealTimeSequencerProvider;
 import sun.misc.BASE64Encoder;
 
 import javax.imageio.ImageIO;
@@ -33,19 +31,29 @@ class WindowsDrawingFrame{
     Robot rob;
     int x,y,width,height,tabletWidth,tabletHeight;
     double xScaleFactor,yScaleFactor;
+    private BufferedImage bImgStream=null;
     Rectangle captureRegion;
-    BufferedImage capturedImage;
-    WindowsDrawingFrame(Robot robot,int x,int y,int tWidth,int tHeight){
+    WindowsDrawingFrame(Robot robot,int x,int y,int captureWidth,int captureHeight,int tabletWidth,int tabletHeight){
+        this(robot,x,y,captureWidth,captureHeight);
+        this.tabletWidth=tabletWidth;
+        this.tabletHeight=tabletHeight;
+        updateWindowFactor(0,0,this.width,this.height);
+    }
+    WindowsDrawingFrame(Robot robot,int x,int y,int captureWidth,int captureHeight){
+        this(robot,x,y);
+        this.width=captureWidth;
+        this.height=captureHeight;
+        updateWindowFactor(0,0,this.width,this.height);
+    }
+    WindowsDrawingFrame(Robot robot,int x,int y){
         this.rob=robot;
-        this.tabletWidth=tWidth;
-        this.tabletHeight=tHeight;
         this.x=x;
         this.y=y;
-        this.width=640;
-        this.height=480;
-        this.xScaleFactor = tWidth/this.width;
-        this.yScaleFactor=tHeight/this.height;
-        this.captureRegion = new Rectangle(this.x,this.y,this.width,this.height);
+        this.tabletWidth=800;
+        this.tabletHeight=480;
+        this.tabletHeight=480;
+        this.tabletWidth=800;
+        updateWindowFactor(0,0,this.width,this.height);
     }
     public int solveX(int x){
         return ((int)xScaleFactor*x);
@@ -55,15 +63,20 @@ class WindowsDrawingFrame{
     }
     public void updateWindowFactor(int x,int y,int width,int height){
         this.width=width;this.height=height;this.x=x;this.y=y;
-        this.xScaleFactor=tabletWidth/(this.width-this.x);
-        this.yScaleFactor=tabletHeight/(this.height-this.y);
+        this.xScaleFactor=(this.width-this.x)/this.tabletWidth;
+        this.yScaleFactor=(this.height-this.y)/this.tabletHeight;
         this.captureRegion = new Rectangle(this.x,this.y,this.width,this.height);
+        bImgStream=new BufferedImage(this.tabletWidth,this.tabletHeight,BufferedImage.SCALE_SMOOTH);
     }
-    String imageString=null;
-    ByteArrayOutputStream bos;
-    BASE64Encoder encoder = new BASE64Encoder();
     public BufferedImage getBufferedImage() throws IOException {
-        return rob.createScreenCapture(this.captureRegion);
+        if(this.tabletHeight==this.height&&this.tabletWidth==this.width)
+            return rob.createScreenCapture(this.captureRegion);
+        Image tmp = rob.createScreenCapture(this.captureRegion).getScaledInstance(this.tabletWidth, this.tabletHeight, Image.SCALE_SMOOTH);
+        BufferedImage dimg = new BufferedImage(this.tabletWidth, this.tabletHeight,BufferedImage.SCALE_SMOOTH);
+        Graphics2D g2d = dimg.createGraphics();
+        g2d.drawImage(tmp, 0, 0, null);
+        g2d.dispose();
+        return dimg;
     }
 }
 
@@ -230,36 +243,12 @@ class MouseController{
 }
 
 public class Main {
-    /*private void displayScreen(){
-        Window w=new Window(null)
-        {
-            @Override
-            public void paint(Graphics g)
-            {
-                final Font font = getFont().deriveFont(48f);
-                g.setFont(font);
-                g.setColor(Color.RED);
-                final String message = "Hello";
-                FontMetrics metrics = g.getFontMetrics();
-                g.drawString(message,
-                        (getWidth()-metrics.stringWidth(message))/2,
-                        (getHeight()-metrics.getHeight())/2);
-            }
-            @Override
-            public void update(Graphics g)
-            {
-                paint(g);
-            }
-        };
-        w.setAlwaysOnTop(true);
-        w.setBounds(w.getGraphicsConfiguration().getBounds());
-        w.setBackground(new Color(0, true));
-        w.setVisible(true);
-    }*/
     static MouseController mouseController;
     static WindowsDrawingFrame windowsDrawingFrame;
     static Robot rob;
 
+    private static ByteArrayOutputStream encscrDOS=null;
+    private static Deflater compressor=null;
     private static int clipStringStep=0;
     private static String clipString="";
     private static int tempID=-1;
@@ -282,17 +271,17 @@ public class Main {
                 compressor.setLevel(Deflater.BEST_COMPRESSION);
                 encscrDOS=new ByteArrayOutputStream();
                 bOsg=new ByteArrayOutputStream();
-                while (client.isConnected()){
+                System.out.println("Looping");
+                while (client.isConnected()&&!client.isClosed()){
                     ImageIO.write(windowsDrawingFrame.getBufferedImage(),"jpg",encscrDOS);
+                    dOs.writeInt(encscrDOS.size());
+                    // in case need to pass raw(decompressed) data size, for loop measurements on android end
                     //System.out.println("fetching uncompressed "+encscrDOS.size());
-                    //complen = sourceLen - ((sourceLen + 7) >> 3) - ((sourceLen + 63) >> 6) + 5;
-                    //int notation = (encscrDOS.size() - ((encscrDOS.size() + 7) >> 3) - ((encscrDOS.size() + 63) >> 6) + 5);
-                    //System.out.println("compression result: "+notation);
-                    try{encscrDOS.close();}catch (Exception e){}
+                    try{encscrDOS.close();}catch(Exception e){}
                     compressor.setInput(encscrDOS.toByteArray());
                     compressor.finish();
                     byte[] buf = new byte[8192];
-                    while (!compressor.finished()) {
+                    while(!compressor.finished()){
                         int count = compressor.deflate(buf);
                         bOsg.write(buf, 0, count);
                     }
@@ -306,108 +295,26 @@ public class Main {
                     bOsg.reset();
                     encscrDOS.reset();
                     compressor.reset();
-                    Thread.sleep(40);
+                    screenFPS++;
+                    //Thread.sleep(500);
                 }
                 dOs.close();
                 client.close();
             }catch (java.net.SocketException e){
-                System.err.println("Data Output (ScreenCast) not avaliable / properly connected");
-                e.printStackTrace();
+                System.err.println("Data Output (ScreenCast) not avaliable / properly connected\nStopping Service...");
+                //e.printStackTrace();
                 try { if(dOs!=null)client.close(); } catch (IOException ex) { ex.printStackTrace(); }
                 try { if(client!=null)client.close(); } catch (IOException ex) { ex.printStackTrace(); }
+                System.out.println("ScreenCast successfuly stopped.");
             }catch (Exception e) {
                 System.err.println("screenBind Erro: "+e.getMessage());
+                e.printStackTrace();
+            }finally {
+                fpsThread.interrupt();
             }
         });
         t.start();
     }
-
-    private static DatagramSocket screenClient=null;
-    private static ByteArrayOutputStream scrDOS=null;
-    private static ByteArrayOutputStream encscrDOS=null;
-    private static Deflater compressor=null;
-    private static InetAddress ipaddr;
-
-    /*private static void bindScreenServer(){
-        Thread sendVideo = new Thread(new Runnable() {
-            @Override
-            public void run() {
-                try{
-                    // Compressor with highest level of compression
-                    compressor= new Deflater();
-                    compressor.setLevel(Deflater.BEST_COMPRESSION);
-                    screenClient = new DatagramSocket(5546);
-                    scrDOS=new ByteArrayOutputStream();
-                    encscrDOS=new ByteArrayOutputStream();
-                    ipaddr = InetAddress.getByName("127.0.0.1");
-
-                    while(screenClient.isBound()&&!screenClient.isClosed()){
-                        ImageIO.write(windowsDrawingFrame.getBufferedImage(),"jpg",encscrDOS);
-                        System.out.println("fetching "+encscrDOS.size());
-                        try{encscrDOS.close();}catch (Exception e){}
-                        compressor.setInput(encscrDOS.toByteArray());
-                        compressor.finish();
-                        byte[] buf = new byte[2048];
-                        while (!compressor.finished()) {
-                            int count = compressor.deflate(buf);
-                            scrDOS.write(buf, 0, count);
-                        }
-                        try { scrDOS.close(); } catch (IOException e) { }
-                        byte[] compressedData = scrDOS.toByteArray();
-                        System.out.println("sending compressed "+scrDOS.size());
-                        DatagramPacket dgp=new DatagramPacket(compressedData,0,compressedData.length,ipaddr,5546);
-                        screenClient.send(dgp);
-                        scrDOS.reset();
-                        encscrDOS.reset();
-                        compressor.reset();
-                        System.out.println("Sent package");
-                        Thread.sleep(10000);
-                    }
-                }catch (Exception e){
-                    System.out.println(e.getMessage());
-                    e.printStackTrace();
-                }
-            }
-        });
-        sendVideo.start();
-    }*/
-
-    /*Runnable sendScreenServerRunnable = new Runnable() {
-        @Override
-        public void run() {
-            // From Server.java
-            try {
-                screenServer = new ServerSocket(3323);
-                while (true) {
-                    //final ParcelFileDescriptor pfd = ParcelFileDescriptor.fromSocket(client);
-                    recorder = new MediaRecorder();
-                    recorder.setVideoSource(MediaRecorder.VideoSource.CAMERA);
-                    recorder.setOutputFormat(MediaRecorder.OutputFormat.THREE_GPP);
-                    recorder.setOutputFile(pfd.getFileDescriptor());
-                    recorder.setVideoFrameRate(20);
-                    recorder.setVideoSize(176, 144);
-                    recorder.setVideoEncoder(MediaRecorder.VideoEncoder.H263);
-                    recorder.setPreviewDisplay(mHolder.getSurface());
-                    try {
-                        recorder.prepare();
-                    } catch (IllegalStateException e) {
-                        // TODO Auto-generated catch block
-                        e.printStackTrace();
-                    } catch (IOException e) {
-                        // TODO Auto-generated catch block
-                        e.printStackTrace();
-                    }
-                    recorder.start();
-                }
-            } catch (UnknownHostException ex) {
-                ex.printStackTrace();
-            } catch (IOException ex) {
-                ex.printStackTrace();
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
-        }
-    };*/
 
 
     private static void bindTouchServer(){
@@ -440,7 +347,6 @@ public class Main {
         });
         t.start();
     }
-
     private static void setClipString(int v){
         if(v==122){//pairing data
             workData=true;
@@ -486,12 +392,35 @@ public class Main {
         }//System.out.println(clipString+"=="+clipStringStep);
     }
 
+    static int screenFPS=0;
+    static Thread fpsThread=null;
+    private static void fpsThread(){
+        if(fpsThread==null){
+            fpsThread=new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        while (true) {
+                            System.out.println("FPS: " + screenFPS);
+                            screenFPS=0;
+                            Thread.sleep(1000);
+                        }
+                    }catch (InterruptedException e) {
+                        e.printStackTrace();
+                    }
+                }
+            });
+            fpsThread.start();
+        }
+    }
+
     public static void main(String[] args) throws IOException {
         try  {
             rob= new Robot();
             windowsDrawingFrame=new WindowsDrawingFrame(rob,0,0,800,480);
             mouseController = new MouseController(windowsDrawingFrame,rob);
             System.out.println("CONNECTING...");
+            fpsThread();
             //bindTouchServer();
             bindScreenServer();
         }catch (Exception e) {
@@ -499,3 +428,111 @@ public class Main {
         }
     }
 }
+
+/*private void displayScreen(){
+        Window w=new Window(null)
+        {
+            @Override
+            public void paint(Graphics g)
+            {
+                final Font font = getFont().deriveFont(48f);
+                g.setFont(font);
+                g.setColor(Color.RED);
+                final String message = "Hello";
+                FontMetrics metrics = g.getFontMetrics();
+                g.drawString(message,
+                        (getWidth()-metrics.stringWidth(message))/2,
+                        (getHeight()-metrics.getHeight())/2);
+            }
+            @Override
+            public void update(Graphics g)
+            {
+                paint(g);
+            }
+        };
+        w.setAlwaysOnTop(true);
+        w.setBounds(w.getGraphicsConfiguration().getBounds());
+        w.setBackground(new Color(0, true));
+        w.setVisible(true);
+    }*/
+
+/*private static void bindScreenServer(){
+        Thread sendVideo = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try{
+                    // Compressor with highest level of compression
+                    compressor= new Deflater();
+                    compressor.setLevel(Deflater.BEST_COMPRESSION);
+                    screenClient = new DatagramSocket(5546);
+                    scrDOS=new ByteArrayOutputStream();
+                    encscrDOS=new ByteArrayOutputStream();
+                    ipaddr = InetAddress.getByName("127.0.0.1");
+
+                    while(screenClient.isBound()&&!screenClient.isClosed()){
+                        ImageIO.write(windowsDrawingFrame.getBufferedImage(),"jpg",encscrDOS);
+                        System.out.println("fetching "+encscrDOS.size());
+                        try{encscrDOS.close();}catch (Exception e){}
+                        compressor.setInput(encscrDOS.toByteArray());
+                        compressor.finish();
+                        byte[] buf = new byte[2048];
+                        while (!compressor.finished()) {
+                            int count = compressor.deflate(buf);
+                            scrDOS.write(buf, 0, count);
+                        }
+                        try { scrDOS.close(); } catch (IOException e) { }
+                        byte[] compressedData = scrDOS.toByteArray();
+                        System.out.println("sending compressed "+scrDOS.size());
+                        DatagramPacket dgp=new DatagramPacket(compressedData,0,compressedData.length,ipaddr,5546);
+                        screenClient.send(dgp);
+                        scrDOS.reset();
+                        encscrDOS.reset();
+                        compressor.reset();
+                        System.out.println("Sent package");
+                        Thread.sleep(10000);
+                    }
+                }catch (Exception e){
+                    System.out.println(e.getMessage());
+                    e.printStackTrace();
+                }
+            }
+        });
+        sendVideo.start();
+    }*/
+
+/*Runnable sendScreenServerRunnable = new Runnable() {
+        @Override
+        public void run() {
+            // From Server.java
+            try {
+                screenServer = new ServerSocket(3323);
+                while (true) {
+                    //final ParcelFileDescriptor pfd = ParcelFileDescriptor.fromSocket(client);
+                    recorder = new MediaRecorder();
+                    recorder.setVideoSource(MediaRecorder.VideoSource.CAMERA);
+                    recorder.setOutputFormat(MediaRecorder.OutputFormat.THREE_GPP);
+                    recorder.setOutputFile(pfd.getFileDescriptor());
+                    recorder.setVideoFrameRate(20);
+                    recorder.setVideoSize(176, 144);
+                    recorder.setVideoEncoder(MediaRecorder.VideoEncoder.H263);
+                    recorder.setPreviewDisplay(mHolder.getSurface());
+                    try {
+                        recorder.prepare();
+                    } catch (IllegalStateException e) {
+                        // TODO Auto-generated catch block
+                        e.printStackTrace();
+                    } catch (IOException e) {
+                        // TODO Auto-generated catch block
+                        e.printStackTrace();
+                    }
+                    recorder.start();
+                }
+            } catch (UnknownHostException ex) {
+                ex.printStackTrace();
+            } catch (IOException ex) {
+                ex.printStackTrace();
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
+    };*/
